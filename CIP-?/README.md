@@ -14,18 +14,17 @@ License: CC-BY-4.0
 
 ## Abstract
 
-The Chang upgrade in Cardano brought the support for BLS12-381 elliptic curve with 
+The Chang upgrade in Cardano brought support for the BLS12-381 elliptic curve with 
 by [CIP-0381](https://cips.cardano.org/cip/CIP-0381)
 with a set of operations over $G1$ and $G2$ groups.
-However, some cryptographic protocols need to perform extensive arithmetics 
+However, some cryptographic protocols need to perform extensive arithmetic 
 over the _scalar field_ of BLS12-381 curve.
 The only way to do this in Plutus nowadays is regular arithmetic, 
 which is not well-suited for this task.
-This may lead to unnecessary use of resources on validating nodes and drains transaction limits.
+It may lead to unnecessary use of resources on validating nodes and drain usage limits.
 This CIP proposes extending Plutus to provide an efficient implementation for such cases
 by introducing an _opaque type_ for Montgomery representation of integers
 and a set of primitives to work with them.
-
 
 ## Motivation: why is this CIP necessary?
 
@@ -34,7 +33,7 @@ for what traditionally was done using Merkle trees or similar structures, e.g.
 [merkle-patricia-forestry](https://github.com/aiken-lang/merkle-patricia-forestry).
 
 Pairing-based cryptographic accumulators [[SKBP22]](https://dl.acm.org/doi/pdf/10.1145/3548606.3560676) 
-provide similar functionality with some additional performance perks and elegance, mostly due to 
+provide similar functionality with some additional performance perks and elegance, e.g.
 _batch membership proofs_ that turn out to be new updated accumulator commitments
 at the same time.
 
@@ -76,18 +75,18 @@ This approach is used in Aiken stdlib [Scalar](https://aiken-lang.github.io/stdl
 and in the corresponding [module](https://github.com/nau/scalus/blame/master/scalus-core/shared/src/main/scala/scalus/prelude/crypto/bls12_381/Scalar.scala) in Scalus.
 
 2. Surprisingly, the step of taking the modulo with `modInteger`
-can be skipped due to the fact that the typical sink for the results are
+can be skipped due to the fact that the typical sink for the results is
 `bls12_381_g1_scalar_mul` and `bls12_381_g2_scalar_mul` built-ins. 
 Those functions take plain integers, and their outputs are the same 
 for the whole _congruence class_ of scalars.
-This lows Plutus execution costs but increases the resource usage for validating nodes 
+This lowers Plutus execution costs but increases the resource usage for validating nodes 
 by ruining the core benefits of staying within a finite field.
-Concretely, in the Aiken implementation of the bilinear accumulator mentioned above, 
+Concretely, in the Aiken implementation of the bilinear accumulator mentioned above
 the test case for the maximum number of 45 elements 
 (see [PR](https://github.com/perturbing/plutus-accumulator/pull/2) for details)
-demonstrates that by omitting the modulo step
+demonstrates that by omitting the modulo step,
 one can drop the budgets roughly by 10% (mem: 140430 vs. 125542, cpu: 44438444 vs. 48159242)
-by forcing the validators to operate over numbers up to 10020 bits instead of regular 255.
+by forcing the validators to operate over numbers up to 10020 bits instead of the regular 255.
 
 ## Specification
 
