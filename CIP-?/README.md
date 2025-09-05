@@ -79,7 +79,9 @@ can be skipped due to the fact that the typical sink for the results is
 `bls12_381_g1_scalar_mul` and `bls12_381_g2_scalar_mul` built-ins. 
 Those functions take plain integers, and their outputs are the same 
 for the whole _congruence class_ of scalars.
-This lowers Plutus execution costs but increases the resource usage for validating nodes 
+This allows improving the _model performance_ and lowering the execution costs 
+despite the fact Plutus uses bit-size metric for integers 
+but (presumably) drops the _real performance_  
 by ruining the core benefits of staying within a finite field.
 Concretely, in the Aiken implementation of the bilinear accumulator mentioned above
 the test case for the maximum number of 45 elements 
@@ -87,6 +89,74 @@ the test case for the maximum number of 45 elements
 demonstrates that by omitting the modulo step,
 one can drop the budgets roughly by 10% (mem: 140430 vs. 125542, cpu: 44438444 vs. 48159242)
 by forcing the validators to operate over numbers up to 10020 bits instead of the regular 255.
+
+[Montgomery multiplication](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication)
+seems to be a viable alternative for similar use cases when there is a need to multiply
+many scalars in one go since it's known to be much faster. 
+We did preliminary benchmarks for multiplication of binomials 
+to compare an optimized `blst` implementation of Montgomery multiplication
+(the library which is already used in Plutus)
+with naive implementation.
+We used Rust bindings for `blst` and `num-bigint` library. 
+The underlying bindings are the same as used in `cardano-base` for `bslt`, 
+so we can expect similar behavior for the Haskell stack.
+Each benchmark was executed 1000 times on Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz.
+Values show average time and standard deviation.
+
+| Size | Montgomery Avg | Montgomery σ | Naive Avg    | Naive σ      | Speedup |
+|-----:|----------------|--------------|--------------|--------------|---------|
+|   10 | 101.734 µs     | 22.565 µs    | 685.302 µs   | 159.436 µs   | 6.74x   |
+|   15 | 138.966 µs     | 26.496 µs    | 953.121 µs   | 251.909 µs   | 6.86x   |
+|   20 | 186.083 µs     | 21.703 µs    | 1.363 ms     | 189.064 µs   | 7.33x   |
+|   25 | 241.934 µs     | 30.409 µs    | 2.096 ms     | 370.952 µs   | 8.67x   |
+|   30 | 298.265 µs     | 33.504 µs    | 2.926 ms     | 401.267 µs   | 9.81x   |
+|   31 | 310.631 µs     | 33.857 µs    | 3.108 ms     | 334.523 µs   | 10.00x  |
+|   32 | 328.822 µs     | 45.218 µs    | 3.461 ms     | 521.307 µs   | 10.52x  |
+|   35 | 355.684 µs     | 49.508 µs    | 4.142 ms     | 579.682 µs   | 11.65x  |
+|   40 | 396.741 µs     | 63.206 µs    | 5.474 ms     | 749.828 µs   | 13.80x  |
+|   45 | 472.785 µs     | 85.491 µs    | 7.602 ms     | 1.501 ms     | 16.08x  |
+|   50 | 534.158 µs     | 119.238 µs   | 10.226 ms    | 3.898 ms     | 19.14x  |
+|  100 | 1.090 ms       | 239.000 µs   | 35.546 ms    | 8.156 ms     | 32.61x  |
+|  200 | 3.042173ms     | 483.892µs    | 141.871796ms | 21.302688ms  | 46.64x  |
+|  300 | 6.040093ms     | 1.034338ms   | 319.940927ms | 50.53683ms   | 52.97x  |
+|  400 | 8.951528ms     | 901.017µs    | 500.398941ms | 49.487447ms  | 55.90x  |
+| 1000 | 49.006538ms    | 4.043325ms   | 3.044053658s | 223.957115ms | 62.12x  |
+
+The table shows that the performance improvement rises quickly with the number of binomials.
+The provided figures for Montgomery multiplication include converting of an initial
+vector of coefficients into the Montgomery form and back to integers for the results.  
+
+The availability of built-in functions in the Plutus language will provide a 
+more efficient way to perform this important type of computation,
+bump the limits of operations that fit to a transaction,
+and reduce costs.  
+
+Implementing the Montgomery multiplication directly in Plutus should be possible
+with CIP-122 but hardly will bring any improvements.
+
+In Cardano, multiplication of scalars in the BLS12-381 scalar field is used 
+by cryptographic primitives that need polynomial arithmetic over — most notably:
+
+1. SNARKs (Groth16, PLONK, Marlin)
+2. Polynomial commitments (KZG)
+3. Mithril signatures (stake-based aggregation)
+4. Other pairing-based protocols
+
+The above-mentioned cryptographic primitives are used in many Cardano products, just to mention a few:
+
+- **Mithril** - utilizes a stake-based threshold multisignature scheme based on elliptic curve pairings
+    that technically can be verified onchain.
+- **Hydrozoa** (a brand-new layer-2 solution for Cardano) - uses pairing-based cryptographic accumulators to commit to a set of L2 utxos 
+that can be withdrawn once a dispute is complete in the rule-based regime of operation.
+
+In conclusion, the current approach arguably either leaves developers
+with not quite efficient way of multiplying scalars
+or pushes them into the suboptimal direction of using infinite integers 
+(and also inefficient one in terms of real performance).
+Incorporating effective multiplication over the scalar field
+directly will streamline such operations, reduce transaction costs, 
+thereby significantly advancing the Plutus ecosystem's functionality 
+and dev experience.
 
 ## Specification
 
