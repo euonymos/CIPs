@@ -18,7 +18,7 @@ The Chang upgrade in Cardano brought support for the BLS12-381 elliptic curve wi
 by [CIP-0381](https://cips.cardano.org/cip/CIP-0381)
 with a set of operations over $G1$ and $G2$ groups.
 However, some cryptographic protocols need to perform extensive arithmetic 
-over the _scalar field_ of BLS12-381 curve mostly for polynomial arithmetic in SNARKs or KZG commitments.
+over the _scalar field_ of the BLS12-381 curve, mostly for polynomial arithmetic in SNARKs or KZG commitments.
 The only way to do this in Plutus nowadays is regular arithmetic, 
 which is not well-suited for this task.
 It may lead to unnecessary use of resources on validating nodes and drain usage limits.
@@ -79,9 +79,9 @@ can be skipped since the typical sink for the results is
 `bls12_381_g1_scalar_mul` and `bls12_381_g2_scalar_mul` built-ins. 
 Those functions take plain integers, and their outputs are the same 
 for the whole _congruence class_ of scalars because 
-they implicitly reduce integers modulo the field size. 
+the exceeding scalars get implicitly reduced modulo the size of the scalar field. 
 This allows improving the _model performance_ and lowering the execution costs 
-despite the fact Plutus uses bit-size metric for integers 
+despite the fact that Plutus uses bit-size metric for integers 
 but drops the _real performance_ by ruining the core benefits of staying within a finite field.
 More specifically, in the Aiken implementation of the bilinear accumulator mentioned above
 the test case for the maximum number of 45 elements 
@@ -93,12 +93,12 @@ by forcing the validators to operate over numbers up to 10020 bits instead of th
 [Montgomery multiplication](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication)
 seems to be a viable alternative for such and similar use cases when there is a need to multiply
 many scalars in one go since it's known to be much faster. 
-We did preliminary benchmarks for multiplication of binomials 
+We did preliminary benchmarks for the multiplication of binomials 
 to compare an optimized `blst` implementation of Montgomery multiplication
-(the library which is already used in Plutus)
+(the library, which is already used in Plutus)
 with naive implementation.
-We used Rust bindings for `blst` and native `num-bigint` library. 
-The underlying bindings are the same as used in `cardano-base` for `bslt`, 
+We used Rust bindings for `blst` and the native `num-bigint` library. 
+The underlying bindings are the same as those used in `cardano-base` for `bslt`, 
 so we can expect similar behavior for the Haskell stack.
 Each benchmark was executed 1000 times on Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz.
 Values show average time and standard deviation.
@@ -123,8 +123,8 @@ Values show average time and standard deviation.
 | 1000 | 49.006538ms    | 4.043325ms   | 3.044053658s | 223.957115ms | 62.12x  |
 
 The table shows that the performance improvement rises quickly with the number of binomials.
-The provided figures for Montgomery multiplication _include_ time for converting of the initial
-vector of coefficients into the Montgomery form and back to integers in the end for the results.  
+The provided figures for Montgomery multiplication _include_ time for converting the initial
+vector of coefficients into the Montgomery form and back to bytes in the end for the results.  
 
 The availability of built-in functions in the Plutus language will provide a 
 more efficient way to perform this important type of computation,
@@ -132,7 +132,7 @@ bump the limits of operations that fit into a single transaction,
 and reduce costs.  
 
 Implementing the Montgomery multiplication directly in Plutus should be technically possible
-with CIP-122, but will hardly bring any improvements mentioned and so is not advisable.
+with the presence of CIP-122, but will hardly bring any improvements mentioned, and is not advisable.
 
 In Cardano, multiplication of scalars in the BLS12-381 scalar field is used 
 by cryptographic primitives that need polynomial arithmetic over — most notably:
@@ -149,7 +149,7 @@ The above-mentioned cryptographic primitives are used in many Cardano products, 
 - **Hydrozoa** (a brand-new layer-2 solution for Cardano) - uses pairing-based cryptographic accumulators to commit to a set of L2 utxos that can be withdrawn once a dispute is completed in the rule-based regime of operation.
 
 In conclusion, the existing approach arguably either leaves developers
-with not quite efficient way of multiplying scalars
+with a rather inefficient way of multiplying scalars
 or pushes them into the suboptimal direction of using infinite integers 
 (which is also inefficient in terms of real performance).
 Incorporating effective multiplication over the scalar field
@@ -158,53 +158,55 @@ thereby advancing the Plutus ecosystem's functionality and dev experience.
 
 ## Specification
 
-The various BLS12-381-specific operations for the scalar field $F_r$ including Montgomery multiplication 
+The various BLS12-381-specific operations for the scalar field $F_r$, including Montgomery multiplication 
 are implemented in [blst](https://github.com/supranational/blst/blob/e99f7db0db413e2efefcfd077a4e335766f39c27/bindings/blst.h#L88-L105) library, 
 which is already a dependency for the [cardano-base](https://github.com/IntersectMBO/cardano-base/blob/master/cardano-crypto-class/src/Cardano/Crypto/EllipticCurve/). 
 It has been used for implementing 
 [CIP-381](https://cips.cardano.org/cip/CIP-0381) 
 and [CIP-133](https://cips.cardano.org/cip/CIP-0133). 
-Basically, we would like to expose several additional functions from this library in Plutus API.
+Basically, we would like to expose several additional functions from this library in the Plutus API.
 
 ### New types definition
 
-To represent a scalar in $F_r$ stored in the Montgomery form a new opaque type `bls12_381_fr`
-(which corresponds to `blst_fr` type) can be used along with introducing and eliminating from/to a _byte array_: 
+To represent a scalar in $F_r$ stored in the Montgomery form, a new opaque type `bls12_381_fr`
+(which corresponds to `blst_fr` type) can be used along with introducing and eliminating functions from/to a _byte array_: 
 
 ```
 bytestring_to_bls12_381_fr: [bool, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] -> bls12_381_fr
 bls12_381_fr_to_bytestring :: [bool, bls12_381_fr] -> 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
 ```
 
-The conversion is little-endian if the first arguemn is `false` and big-endian if it is `true`.
-We prefer not to choose name `bls12_381_scalar` to avoid name clashes with existing functions
+The conversion is little-endian if the first argument is `false` and big-endian if it is `true`.
+We prefer not to choose the name `bls12_381_scalar` to avoid name clashes with existing functions
 for _scalar multiplication_ like `bls12_381_G1_scalarMul`.
 
 ### Function definition
 
-In addition to convertion functions mentioned in the previous section,
+In addition to the conversion functions mentioned in the previous section,
 we propose to define the only function for Montgomery modular multiplication
 **bls12_381_fr_mul** as follows:
 
 ```
 bls12_381_fr_mul :: [bls12_381_fr, bls12_381_fr] -> bls12_381_fr
 ```
+
 TBD: Scalar and multi-scalar multiplication in $G1$ and $G2$ are typical downstream functions 
-for `bls12_381_fr` values, but in the current Plutus they use integers, i.e., double conversion is needed:
+for `bls12_381_fr` values, but in the current Plutus, they take integers, i.e., double conversion is needed:
 `bls12_381_fr -> bytestring -> integer` to call them.
-The underlying `blst` functions take a pointer to raw bytes, i.e. `const byte *scalar`, so probably
-we should consider ways of simplifying this by either having scalar multiplication that works with
-byte arrays or providing a function to go directly form `bls12_381_fr` to `integer`.
+The underlying `blst` functions take a pointer to raw bytes, i.e., `const byte *scalar`, so probably
+we should consider trying to simplify that by either having scalar multiplication that works with
+byte arrays or providing a function to go directly from `bls12_381_fr` to `integer`.
+Or, we can use values of type `bls12_381_fr` directly, though it might be a way too radical change for Plutus.
 
 TBD: Additionally, we might consider adding some other functions that `blst` [provides](https://github.com/supranational/blst/blob/e99f7db0db413e2efefcfd077a4e335766f39c27/bindings/blst.h#L88-L105).
 
 ### Cost model
 
-The computational impact of Montgomery multiplication is straightforward, since values of
-type `bls12_381_fr` are statically limited to 255 bits, so for newly added `bls12_381_fr_mul`
-function we can use a static cost model.
+The computational impact of Montgomery multiplication is straightforward, since the values of
+type `bls12_381_fr` are statically limited to 255 bits, so for the newly added `bls12_381_fr_mul`
+function we can use a very simple static cost model.
 
-TDB: Introducing of this type potentially allows simplifying cost models for some other functions.
+TDB: Introduction of `bls12_381_fr` type potentially allows simplifying cost models for some other functions.
 Currently, scalars have to be reduced modulo the order of the group before being passed to the `blst` 
 functions, see [cardano-base](https://github.com/IntersectMBO/cardano-base/blob/6f9c20abdd3010e5a25356580cc968ba430101ad/cardano-crypto-class/src/Cardano/Crypto/EllipticCurve/BLS12_381/Internal.hs#L521).
 
